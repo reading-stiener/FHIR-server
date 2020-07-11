@@ -52,6 +52,7 @@ module.exports.search = (args, context, logger) => new Promise((resolve, reject)
     let fami = args['family'];
     let gend = args['gender'];
     let birt = args['birthdate'];
+    let emai = args['email'];
     // Special parameters to support pagination
     let coun = context.req.query['_count'];
     let page = context.req.query['_page'];
@@ -59,6 +60,9 @@ module.exports.search = (args, context, logger) => new Promise((resolve, reject)
     let idx = args[_id];
     // Our instance of the tables of the legacy database
     let person = new Person(sequelize, DataTypes);
+
+    console.log(person)
+
     let personDoc = new PersonDoc(sequelize, DataTypes);
     let docType = new DocType(sequelize, DataTypes);
     // We declare sequelizer the relations between the tables
@@ -91,6 +95,11 @@ module.exports.search = (args, context, logger) => new Promise((resolve, reject)
     if (idx) {
         criteria.push({ prsn_id: idx });
     }
+    // If the email parameter exists
+    if (emai){
+        criteria.push({ PRSN_EMAIL: emai})
+    }
+
     // If name is a parameter we need to look in every name part, and do an OR
     if (name) {
         criteria.push({
@@ -544,7 +553,12 @@ module.exports.create = (args, context, logger) => new Promise((resolve, reject)
 });
 
 module.exports.searchById = (args, context, logger) => new Promise((resolve, reject) => {
+<<<<<<< HEAD
     //	logger.info('Patient >>> searchById');
+=======
+    //logger.info('Patient >>> searchById');
+    console.log('Direct read')
+>>>>>>> 1ae95d79af4bbdce02bbe84e4bee50a5f118442d
     let { base_version, id } = args;
     let person = new Person(sequelize, DataTypes);
     let personDoc = new PersonDoc(sequelize, DataTypes);
