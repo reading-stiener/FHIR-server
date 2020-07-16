@@ -42,4 +42,22 @@ function GetDocumentSystemUse(abbrev) {
 
 }
 
-module.exports = { GetDocumentSystemUse, GetDocumentType }
+function GetNPI(){
+    var system = '';
+    var use ='';
+    const DocTypeToSystemMap = options.SystemMap;
+    var MyIndex = -1;
+    for (let i = 0; i < DocTypeToSystemMap.length; i++) { 
+        if (DocTypeToSystemMap[i].type == 'NPI') {
+            MyIndex = i;
+            break;
+        }
+    };
+    if (MyIndex > -1) { 
+        system = DocTypeToSystemMap[MyIndex].system;
+        use = DocTypeToSystemMap[MyIndex].use;
+    }
+    return { system, use }
+}
+
+module.exports = { GetDocumentSystemUse, GetDocumentType, GetNPI }

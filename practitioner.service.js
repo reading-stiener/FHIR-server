@@ -4,25 +4,31 @@
 //Housekeeping for sequelize
 const { DataTypes } = require("sequelize");
 const sequelize = require('./dbconfig').db;
+
 //Specific models for our legacy person object
 const Person = require('./models/PERSON');
 const PersonDoc = require('./models/PERSON_DOC');
 const DocType = require('./models/DOC_TYPE');
+
 //Mapping between FHIR system and legacy document type
 const LegacyDocumentType = require('./legacy_document_type');
+
 //UID generator for bundles
 const uuidv4 = require('uuid').v4;
+
 //FHIR specific stuff: Server, resources: Patient, Bundle, OperationOutcome and Entry
 const { RESOURCES } = require('@asymmetrik/node-fhir-server-core').constants;
 const FHIRServer = require('@asymmetrik/node-fhir-server-core');
-const getPatient = require('@asymmetrik/node-fhir-server-core/src/server/resources/4_0_0/schemas/patient');
+const getPractitioner = require('@asymmetrik/node-fhir-server-core/src/server/resources/4_0_0/schemas/practitioner');
 const getBundle = require('@asymmetrik/node-fhir-server-core/src/server/resources/4_0_0/schemas/bundle');
 const getOperationOutcome = require('@asymmetrik/node-fhir-server-core/src/server/resources/4_0_0/schemas/operationoutcome');
 const getBundleEntry = require('@asymmetrik/node-fhir-server-core/src/server/resources/4_0_0/schemas/bundleentry');
+
 //Meta data for FHIR R4
 let getMeta = (base_version) => {
     return require(FHIRServer.resolveFromVersion(base_version, RESOURCES.META));
 };
+
 //How to search the address of our server, so we can return it in the fullURL for each Patient entry
 function GetBaseUrl(context) {
     var baseUrl = "";
@@ -33,94 +39,65 @@ function GetBaseUrl(context) {
     return baseUrl;
 
 };
-//This is for patient searches (direct read is special, below)
-module.exports.search = (args, context, logger) => new Promise((resolve, reject) => {
-    //	logger.info('Patient >>> search');
 
+module.exports.search = (args, context, logger) => new Promise((resolve, reject) => {
     // Common search params, we only support _id
     let { base_version, _content, _format, _id, _lastUpdated, _profile, _query, _security, _tag } = args;
 
     // Search Result params ,we only support _count
     let { _INCLUDE, _REVINCLUDE, _SORT, _COUNT, _SUMMARY, _ELEMENTS, _CONTAINED, _CONTAINEDTYPED } = args;
-
-
+    
     let baseUrl = GetBaseUrl(context);
     // These are the parameters we can search for : name, identifier, family, gender and birthDate
     let name = args['name'];
     let iden = args['identifier'];
-    let fami = args['family'];
-    let gend = args['gender'];
-    let birt = args['birthdate'];
-    let emai = args['email'];
-    // Special parameters to support pagination
     let coun = context.req.query['_count'];
-    let page = context.req.query['_page'];
+    let page = context.req.query ['_page'];
     // Special search parameter to search by Id instead of direct read
     let idx = args[_id];
-    // Our instance of the tables of the legacy database
+    
     let person = new Person(sequelize, DataTypes);
-
-    //console.log(person)
-
     let personDoc = new PersonDoc(sequelize, DataTypes);
     let docType = new DocType(sequelize, DataTypes);
-    // We declare sequelizer the relations between the tables
-    personDoc.belongsTo(docType, {
+
+    personDoc.belongsTo(docType, { 
         as: 'DOC_TYPE',
         foreignKey: 'PRDT_DCTP_ID'
-
-    });
-    person.hasMany(personDoc, { as: 'PERSON_DOC', foreignKey: 'PRDT_PRSN_ID' });
-    // These are the operators for and/or in sequelizer. We need a few of them
-
+    })
+    
+    
+    person.hasMany(personDoc, {
+        as: 'PERSON_DOC',
+        foreignKey: 'PRDT_PRSN_ID'
+    })
+    
     const { Op } = require("sequelize");
-    // Definining our array for search criteria
-    // The criteria in the request translated to what sequelize expects for our tables
-    let criteria = [];
-    // If the family name is a parameter in this specific request...
-    if (fami) {
-        criteria.push({ PRSN_LAST_NAME: fami });
-    }
-    // If the gender is a parameter...
-    if (gend) {
-        criteria.push({ PRSN_GENDER: gend });
-    }
-    // If the birth date is a parameter...
 
-    if (birt) {
-        criteria.push({ PRSN_BIRTH_DATE: birt });
-    }
-    // If the _id is a parameter
-    if (idx) {
-        criteria.push({ prsn_id: idx });
-    }
-    // If the email parameter exists
-    if (emai){
-        criteria.push({ PRSN_EMAIL: emai})
-    }
+    let criteria = []; 
 
-    // If name is a parameter we need to look in every name part, and do an OR
-    if (name) {
+    if (name) { 
         criteria.push({
             [Op.or]: [{
-                    PRSN_LAST_NAME: {
-                        [Op.like]: '%' + name + '%'
-                    }
-                },
-                {
-                    PRSN_FIRST_NAME: {
-                        [Op.like]: '%' + name + '%'
-                    }
-                },
-                {
-                    PRSN_SECOND_NAME: {
-                        [Op.like]: '%' + name + '%'
-                    }
+                PRSN_LAST_NAME: { 
+                    [Op.like]: '%' + name + '%'
                 }
-            ]
+            },
+            {
+                PRSN_FIRST_NAME: {
+                    [Op.like]: '%' + name + '%'
+                }
+            },
+            {
+                PRSN_SECOND_NAME: {
+                    [Op.like]: '%' + name + '%'
+                }
+            }
+        ]
         });
     }
-    //We want sequelize to traverse the tables and get us all together: PERSONS, DOCUMENTS, DOCUMENT CODES
+
+ 
+
     include = [{
         model: personDoc,
         as: 'PERSON_DOC',
@@ -130,53 +107,40 @@ module.exports.search = (args, context, logger) => new Promise((resolve, reject)
         }]
     }];
 
-    //We need to handle the 'identifier' parameter in a different way
-    //
-    //We will search first in PERSON_DOC to get the (few..one?) person
-    //matching the identifier
-    //and add them as 'another' criteria for the search
-    //So we have both
-    //We decided to do this because the alternative was to filter
-    //using sequelize filter for includes (include.where)
-    //but it would also filter our results to only the specific identifier
-    //and persons can have more than one, thus...this
-    if (iden) {
-        //splitting the token system|value
+    // check for NPI identifier
+    include.where = [{ PRDT_DCTP_ID: 3 }];
+
+    if (iden) { 
         var search_type = "";
         var search_value = "";
-        v = iden.split("|");
-        //If system is specified
-        if (v.length > 1) {
-            search_system = v[0];
-            //Get the legacy type corresponding to the system
+        var v = iden.split("|");
+
+        if (v.length > 1) { 
+            var search_system = v[0];
             let legacyMapper = LegacyDocumentType;
             search_type = legacyMapper.GetDocumentType(search_system);
             search_value = v[1];
-        } else {
+        } else { 
             search_value = iden;
         }
-        //This function gets the primary key for all the persons with the same
-        //identifier. Hopefully, only one of them
+
         GetPersonsByIdentifier(personDoc, docType, search_type, search_value)
             .then(
                 result => {
-                    //For each person with the same identifier, add the person id to the criteria
-                    result.forEach(item => { criteria.push(item); });
-                    //Now with the complete criteria, search all the patients and assemble the bundle
-                    GetPatients(person, include, criteria, context, coun, page)
-                        .then(result => { resolve(result); })
+                    result.forEach(item => { criteria.push(item) });
+                    GetPractitioners(person, include, criteria, context, coun, page)
+                    .then(result => { resolve(result); })
                 }
             )
-
     } else {
         //Normal search using all the criteria but 'identifier'
-        GetPatients(person, include, criteria, context, coun, page)
+        GetPractitioners(person, include, criteria, context, coun, page)
             .then(result => { resolve(result); })
 
     }
 
+})
 
-});
 //This function/promise returns an array of sequelize criteria with 
 //the legacy person id with a specific document type/number
 
@@ -200,12 +164,15 @@ function GetPersonsByIdentifier(personDoc, docType, searchType, searchValue) {
                     as: 'DOC_TYPE'
 
                 }];
-
-                if (searchType != "") {
-                    include.where = [{ DCTP_ABREV: searchType }];
-                }
                 // Criteria involves the document number
                 let criteria = [];
+                if (searchType != "") {
+                    include.where = [{ DCTP_ABREV: searchType }];
+                    if (searchType != 'NPI') { 
+                        criteria.push({ PRDT_DCTP_ID: 3 });
+                    }
+                }
+          
                 criteria.push({ PRDT_DOC_VALUE: searchValue })
                     // Here we ask for all the persons matching the criteria
                 personDoc.findAll({
@@ -233,13 +200,11 @@ function GetPersonsByIdentifier(personDoc, docType, searchType, searchValue) {
             }
         })
 }
+
 //This is the specific search for all patients matching the query
-//
-function GetPatients(person, include, criteria, context, coun, page) {
+function GetPractitioners(person, include, criteria, context, coun, page) {
     return new Promise(
-
         function(resolve, reject)
-
         {
             //Here we solve paginations issues: how many records per page, which page
             let offset = 0
@@ -288,18 +253,18 @@ function GetPatients(person, include, criteria, context, coun, page) {
                             MyPersons.forEach(
                                 MyPerson => {
                                     //We map from legacy person to patient
-                                    MyPatient = PersonToPatientMapper(MyPerson);
+                                    MyPractitioner = PersonToPractitionerMapper(MyPerson);
                                     //Add the identifiers
-                                    MyPatient = PersonIdentifierToPatientIdentifierMapper(MyPatient, MyPerson);
+                                    MyPractitioner = PersonIdentifierToPractitionerIdentifierMapper(MyPractitioner, MyPerson);
                                     //And save the result in an array
-                                    result.push(MyPatient);
+                                    result.push(MyPractitioner);
                                 });
                             //With all the patients we have in the result.array
                             //we assemble the entries
-                            let entries = result.map(patient =>
+                            let entries = result.map(practitioner =>
                                 new BundleEntry({
-                                    fullUrl: baseUrl + '/Patient/' + patient.id,
-                                    resource: patient
+                                    fullUrl: baseUrl + '/Practitioner/' + practitioner.id,
+                                    resource: practitioner
                                 }));
                             //We assemble the bundle
                             //With the type, total, entries, id, and meta
@@ -316,14 +281,14 @@ function GetPatients(person, include, criteria, context, coun, page) {
                             //And finally, we generate the link element
                             //self (always), prev (if there is a previous page available)
                             //next (if there is a next page available)
-                            var OriginalQuery = baseUrl + "Patient";
-                            var LinkQuery = baseUrl + "Patient";
+                            var OriginalQuery = baseUrl + "Practitioner";
+                            var LinkQuery = baseUrl + "Practitioner";
                             var parNum = 0;
                             var linkParNum = 0;
                             //This is to reassemble the query
                             for (var param in context.req.query) {
-                                //console.log(param);
-                                //console.log(context.req.query[param]);
+                                console.log(param);
+                                console.log(context.req.query[param]);
                                 if (param != "base_version") {
                                     var sep = "&";
                                     parNum = parNum + 1;
@@ -378,13 +343,12 @@ function GetPatients(person, include, criteria, context, coun, page) {
 
         });
 }
-// Person to Patient mapper
+// Person to Practitioner mapper
 // This funcion receives a legacy person and returns a FHIR Patient
 // 
-function PersonToPatientMapper(MyPerson) {
+function PersonToPractitionerMapper(MyPerson) {
 
-    let R = new getPatient();
-    console.log(MyPerson)
+    let R = new getPractitioner();
     if (MyPerson) {
         //Logical server id
         R.id = MyPerson.PRSN_ID.toString();
@@ -398,17 +362,7 @@ function PersonToPatientMapper(MyPerson) {
             text: MyPerson.PRSN_FIRST_NAME + " " + MyPerson.PRSN_LAST_NAME
 
         }];
-        //Mapping of gender is not needed because it's the same codes
-        R.gender = MyPerson.PRSN_GENDER;
-        //BirthDate no conversion needed
-        R.birthDate = MyPerson.PRSN_BIRTH_DATE;
-        //If there is second name then we add the given
-        //and adjust the text element
-        if (MyPerson.PRSN_SECOND_NAME != "") {
-            R.name[0].given.push(MyPerson.PRSN_SECOND_NAME);
-            R.name[0].text = R.name.text = MyPerson.PRSN_FIRST_NAME + " " + MyPerson.PRSN_SECOND_NAME + " " + MyPerson.PRSN_LAST_NAME;
 
-        }
         //We map our legacy identifier type to FHIR system
         let legacyMapper = LegacyDocumentType;
         mapper = legacyMapper.GetDocumentSystemUse("ID");
@@ -419,22 +373,26 @@ function PersonToPatientMapper(MyPerson) {
             value: MyPerson.PRSN_ID.toString(),
             period: { start: MyPerson.createdAt }
         }];
-        //We assemble the email address
-        R.telecom = [{
-            system: "email",
-            value: MyPerson.PRSN_EMAIL
-        }];
-        //If there is a nick name, we add it
-        if (MyPerson.PRSN_NICK_NAME != "") {
-            legal_name = R.name[0];
-            R.name = [
-                legal_name,
-                {
-                    use: "nickname",
-                    given: [MyPerson.PRSN_NICK_NAME]
-                }
-            ];
-        }
+
+        // var perDocList = MyPerson.PERSON_DOC;
+        // var idx = -1;
+        // for (let i = 0; i < perDocList.length; i++) { 
+        //     // checking if the person has an NPI reference
+        //     if (perDocList[i].PRDT_DCTP_ID == 3) {
+        //         idx = i;
+        //         break;
+        //     }
+        // }
+        // if (idx != -1) {
+        //     mapper = legacyMapper.GetNPI()
+        //     R.identifier.push({
+        //         use: mapper.use,
+        //         system: mapper.sytem,
+        //         value = perDocList[idx].PRDT_DOC_VALUE,
+        //         period: { start: MyPerson.createdAt }
+        //     })
+        // }
+  
         //Full text for the resource
         //NO automatic narrative
 
@@ -447,7 +405,7 @@ function PersonToPatientMapper(MyPerson) {
     return R;
 }
 //Providing special support for the person's identifiers 
-function PersonIdentifierToPatientIdentifierMapper(R, MyPerson) {
+function PersonIdentifierToPractitionerIdentifierMapper(R, MyPerson) {
     //Our helper for transforming the legacy to system/value
     let legacyMapper = LegacyDocumentType;
     MyDocs = MyPerson.PERSON_DOC;
@@ -476,6 +434,7 @@ function PersonIdentifierToPatientIdentifierMapper(R, MyPerson) {
         return R;
     }
 }
+
 //POST of a new Patient Instance
 module.exports.create = (args, context, logger) => new Promise((resolve, reject) => {
     //	logger.info('Patient >>> searchById');
@@ -552,63 +511,63 @@ module.exports.create = (args, context, logger) => new Promise((resolve, reject)
         });
 });
 
-module.exports.searchById = (args, context, logger) => new Promise((resolve, reject) => {
-    //logger.info('Patient >>> searchById');
-    console.log('Direct read')
-    let { base_version, id } = args;
-    let person = new Person(sequelize, DataTypes);
-    let personDoc = new PersonDoc(sequelize, DataTypes);
-    let docType = new DocType(sequelize, DataTypes);
-    personDoc.belongsTo(docType, {
-        as: 'DOC_TYPE',
-        foreignKey: 'PRDT_DCTP_ID'
+// module.exports.searchById = (args, context, logger) => new Promise((resolve, reject) => {
+//     //logger.info('Patient >>> searchById');
+//     console.log('Direct read')
+//     let { base_version, id } = args;
+//     let person = new Person(sequelize, DataTypes);
+//     let personDoc = new PersonDoc(sequelize, DataTypes);
+//     let docType = new DocType(sequelize, DataTypes);
+//     personDoc.belongsTo(docType, {
+//         as: 'DOC_TYPE',
+//         foreignKey: 'PRDT_DCTP_ID'
 
-    });
-    person.hasMany(personDoc, { as: 'PERSON_DOC', foreignKey: 'PRDT_PRSN_ID' });
-
-
-    person
-        .findOne({
-            where: { prsn_id: id },
-            include: [{
-                model: personDoc,
-                as: 'PERSON_DOC',
-                include: [{
-                    model: docType,
-                    as: 'DOC_TYPE'
-                }]
-            }]
-        })
-        .then(
-            MyPerson => {
-                if (MyPerson) {
-
-                    R = PersonToPatientMapper(MyPerson);
-                    R = PersonIdentifierToPatientIdentifierMapper(R, MyPerson);
-                    resolve(R);
-                } else {
-                    let OO = new getOperationOutcome();
-                    let legacyMapper = LegacyDocumentType;
-                    var mapped = legacyMapper.GetDocumentSystemUse("ID");
-                    var message = "Patient with identifier " + mapped.system + " " + id + " not found ";
-                    OO.issue = [{
-                        "severity": "error",
-                        "code": "processing",
-                        "diagnostics": message
-                    }]
-                    resolve(OO);
-                }
-            })
-        .catch(error => {
-            let OO = new getOperationOutcome();
-            var message = error;
-            OO.issue = [{
-                "severity": "error",
-                "code": "processing",
-                "diagnostics": message
-            }]
-            resolve(OO);
+//     });
+//     person.hasMany(personDoc, { as: 'PERSON_DOC', foreignKey: 'PRDT_PRSN_ID' });
 
 
-        })
-})
+//     person
+//         .findOne({
+//             where: { prsn_id: id },
+//             include: [{
+//                 model: personDoc,
+//                 as: 'PERSON_DOC',
+//                 include: [{
+//                     model: docType,
+//                     as: 'DOC_TYPE'
+//                 }]
+//             }]
+//         })
+//         .then(
+//             MyPerson => {
+//                 if (MyPerson) {
+
+//                     R = PersonToPatientMapper(MyPerson);
+//                     R = PersonIdentifierToPatientIdentifierMapper(R, MyPerson);
+//                     resolve(R);
+//                 } else {
+//                     let OO = new getOperationOutcome();
+//                     let legacyMapper = LegacyDocumentType;
+//                     var mapped = legacyMapper.GetDocumentSystemUse("ID");
+//                     var message = "Patient with identifier " + mapped.system + " " + id + " not found ";
+//                     OO.issue = [{
+//                         "severity": "error",
+//                         "code": "processing",
+//                         "diagnostics": message
+//                     }]
+//                     resolve(OO);
+//                 }
+//             })
+//         .catch(error => {
+//             let OO = new getOperationOutcome();
+//             var message = error;
+//             OO.issue = [{
+//                 "severity": "error",
+//                 "code": "processing",
+//                 "diagnostics": message
+//             }]
+//             resolve(OO);
+
+
+//         })
+// })
