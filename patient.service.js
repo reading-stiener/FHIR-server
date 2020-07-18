@@ -59,9 +59,6 @@ module.exports.search = (args, context, logger) => new Promise((resolve, reject)
     let idx = args[_id];
     // Our instance of the tables of the legacy database
     let person = new Person(sequelize, DataTypes);
-
-    //console.log(person)
-
     let personDoc = new PersonDoc(sequelize, DataTypes);
     let docType = new DocType(sequelize, DataTypes);
     // We declare sequelizer the relations between the tables
@@ -322,8 +319,6 @@ function GetPatients(person, include, criteria, context, coun, page) {
                             var linkParNum = 0;
                             //This is to reassemble the query
                             for (var param in context.req.query) {
-                                //console.log(param);
-                                //console.log(context.req.query[param]);
                                 if (param != "base_version") {
                                     var sep = "&";
                                     parNum = parNum + 1;
@@ -384,7 +379,6 @@ function GetPatients(person, include, criteria, context, coun, page) {
 function PersonToPatientMapper(MyPerson) {
 
     let R = new getPatient();
-    console.log(MyPerson)
     if (MyPerson) {
         //Logical server id
         R.id = MyPerson.PRSN_ID.toString();
@@ -554,7 +548,6 @@ module.exports.create = (args, context, logger) => new Promise((resolve, reject)
 
 module.exports.searchById = (args, context, logger) => new Promise((resolve, reject) => {
     //logger.info('Patient >>> searchById');
-    console.log('Direct read')
     let { base_version, id } = args;
     let person = new Person(sequelize, DataTypes);
     let personDoc = new PersonDoc(sequelize, DataTypes);

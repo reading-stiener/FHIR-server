@@ -101,6 +101,7 @@ module.exports.search = (args, context, logger) => new Promise((resolve, reject)
     include = [{
         model: personDoc,
         as: 'PERSON_DOC',
+        where: { PRDT_DCTP_ID: 3 },
         include: [{
             model: docType,
             as: 'DOC_TYPE'
@@ -108,7 +109,8 @@ module.exports.search = (args, context, logger) => new Promise((resolve, reject)
     }];
 
     // check for NPI identifier
-    include.where = [{ PRDT_DCTP_ID: 3 }];
+    //include.where = [{ PRDT_DCTP_ID: 3 }];
+    //criteria.push({ personDoc: 3 })
 
     if (iden) { 
         var search_type = "";
@@ -168,11 +170,10 @@ function GetPersonsByIdentifier(personDoc, docType, searchType, searchValue) {
                 let criteria = [];
                 if (searchType != "") {
                     include.where = [{ DCTP_ABREV: searchType }];
-                    if (searchType != 'NPI') { 
-                        criteria.push({ PRDT_DCTP_ID: 3 });
-                    }
                 }
-          
+
+                // check for NPI document
+                criteria.push({ PRDT_DCTP_ID: 3 })
                 criteria.push({ PRDT_DOC_VALUE: searchValue })
                     // Here we ask for all the persons matching the criteria
                 personDoc.findAll({
@@ -236,12 +237,18 @@ function GetPractitioners(person, include, criteria, context, coun, page) {
                 distinct: true
 
             }).then(TotalCount => {
+                console.log('\n\nFound ' + TotalCount.count + ' records.\n\n')
                 //Adjust page offset and limit to the total count
-                if (offset + limit > TotalCount) {
-                    limit = count;
+                if (offset + limit > TotalCount.count) {
+                    limit = TotalCount.count;
                     offset = 0;
                 }
                 //Now we actually do the search combining the criteria, inclusions, limit and offset
+
+                console.log('include ', include);
+                console.log('criteria ', criteria);
+                console.log('limit', limit);
+                console.log('offset', offset);
                 person.findAll({
                         where: criteria,
                         include: include,
@@ -252,6 +259,7 @@ function GetPractitioners(person, include, criteria, context, coun, page) {
                         MyPersons => {
                             MyPersons.forEach(
                                 MyPerson => {
+                                    console.log(MyPerson)
                                     //We map from legacy person to patient
                                     MyPractitioner = PersonToPractitionerMapper(MyPerson);
                                     //Add the identifiers
@@ -287,8 +295,6 @@ function GetPractitioners(person, include, criteria, context, coun, page) {
                             var linkParNum = 0;
                             //This is to reassemble the query
                             for (var param in context.req.query) {
-                                console.log(param);
-                                console.log(context.req.query[param]);
                                 if (param != "base_version") {
                                     var sep = "&";
                                     parNum = parNum + 1;
@@ -511,63 +517,64 @@ module.exports.create = (args, context, logger) => new Promise((resolve, reject)
         });
 });
 
-// module.exports.searchById = (args, context, logger) => new Promise((resolve, reject) => {
-//     //logger.info('Patient >>> searchById');
-//     console.log('Direct read')
-//     let { base_version, id } = args;
-//     let person = new Person(sequelize, DataTypes);
-//     let personDoc = new PersonDoc(sequelize, DataTypes);
-//     let docType = new DocType(sequelize, DataTypes);
-//     personDoc.belongsTo(docType, {
-//         as: 'DOC_TYPE',
-//         foreignKey: 'PRDT_DCTP_ID'
+module.exports.searchById = (args, context, logger) => new Promise((resolve, reject) => {
+    //logger.info('Patient >>> searchById');
+    let { base_version, id } = args; 
+    let person = new Person(sequelize, DataTypes);
+    let personDoc = new PersonDoc(sequelize, DataTypes);
+    let docType = new DocType(sequelize, DataTypes);
+    personDoc.belongsTo(docType, {
+        as: 'DOC_TYPE',
+        foreignKey: 'PRDT_DCTP_ID'
 
-//     });
-//     person.hasMany(personDoc, { as: 'PERSON_DOC', foreignKey: 'PRDT_PRSN_ID' });
-
-
-//     person
-//         .findOne({
-//             where: { prsn_id: id },
-//             include: [{
-//                 model: personDoc,
-//                 as: 'PERSON_DOC',
-//                 include: [{
-//                     model: docType,
-//                     as: 'DOC_TYPE'
-//                 }]
-//             }]
-//         })
-//         .then(
-//             MyPerson => {
-//                 if (MyPerson) {
-
-//                     R = PersonToPatientMapper(MyPerson);
-//                     R = PersonIdentifierToPatientIdentifierMapper(R, MyPerson);
-//                     resolve(R);
-//                 } else {
-//                     let OO = new getOperationOutcome();
-//                     let legacyMapper = LegacyDocumentType;
-//                     var mapped = legacyMapper.GetDocumentSystemUse("ID");
-//                     var message = "Patient with identifier " + mapped.system + " " + id + " not found ";
-//                     OO.issue = [{
-//                         "severity": "error",
-//                         "code": "processing",
-//                         "diagnostics": message
-//                     }]
-//                     resolve(OO);
-//                 }
-//             })
-//         .catch(error => {
-//             let OO = new getOperationOutcome();
-//             var message = error;
-//             OO.issue = [{
-//                 "severity": "error",
-//                 "code": "processing",
-//                 "diagnostics": message
-//             }]
-//             resolve(OO);
+    });
+    person.hasMany(personDoc, { as: 'PERSON_DOC', foreignKey: 'PRDT_PRSN_ID' });
 
 
-//         })
-// })
+    person
+        .findOne({
+            where: { PRSN_ID: id },
+            include: [{
+                model: personDoc,
+                as: 'PERSON_DOC',
+                where: { PRDT_DCTP_ID: 3 },
+                include: [{
+                    model: docType,
+                    as: 'DOC_TYPE'
+                }]
+            }]
+        })
+        .then(
+            MyPerson => {
+                if (MyPerson) {
+
+                    R = PersonToPractitionerMapper(MyPerson);
+                    R = PersonIdentifierToPractitionerIdentifierMapper(R, MyPerson);
+                    resolve(R);
+                } else {
+                    let OO = new getOperationOutcome();
+                    let legacyMapper = LegacyDocumentType;
+                    var mapped = legacyMapper.GetDocumentSystemUse("ID");
+                    var message = "Patient with identifier " + mapped.system + " " + id + " not found ";
+                    OO.issue = [{
+                        "severity": "error",
+                        "code": "processing",
+                        "diagnostics": message
+                    }]
+                    resolve(OO);
+                }
+            })
+        .catch(error => {
+            console.log(error);
+            let OO = new getOperationOutcome();
+            var message = error;
+            OO.issue = [{
+                "severity": "error",
+                "code": "processing",
+                "diagnostics": message
+            }]
+            resolve(OO);
+
+
+        })
+})
