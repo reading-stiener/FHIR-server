@@ -244,16 +244,12 @@ function GetPractitioners(person, include, criteria, context, coun, page) {
                     offset = 0;
                 }
                 //Now we actually do the search combining the criteria, inclusions, limit and offset
-
-                console.log('include ', include);
-                console.log('criteria ', criteria);
-                console.log('limit', limit);
-                console.log('offset', offset);
                 person.findAll({
                         where: criteria,
                         include: include,
                         limit: limit,
-                        offset: offset
+                        offset: offset,
+                        subQuery: false
                     })
                     .then(
                         MyPersons => {
